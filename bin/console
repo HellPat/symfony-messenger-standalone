@@ -1,0 +1,16 @@
+#!/usr/bin/env php
+<?php
+
+require __DIR__.'/../vendor/autoload.php';
+
+use Hellpat\DispatchTextMessageCommand;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Messenger\MessageBus;
+
+$bus = new MessageBus();
+
+$application = new Application();
+
+$application->add(new DispatchTextMessageCommand($bus));
+
+$application->run();
