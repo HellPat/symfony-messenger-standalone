@@ -4,10 +4,26 @@
 require __DIR__.'/../vendor/autoload.php';
 
 use Hellpat\DispatchTextMessageCommand;
+use Hellpat\TextMessage;
+use Hellpat\TextMessageHandler;
 use Symfony\Component\Console\Application;
+use Symfony\Component\ErrorHandler\Debug;
+use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
+use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
 
-$bus = new MessageBus();
+Debug::enable();
+
+$bus = new MessageBus([
+    new HandleMessageMiddleware(new HandlersLocator([
+        TextMessage::class => [
+            // Every message can have multiple handlers but MUST have at least one handler.
+            // You can allow Messages without handler by configuring the
+            // HandleMessageMiddlewares second constructor parameter ($allowNoHandlers)
+            new TextMessageHandler(),
+        ]
+    ]))
+]);
 
 $application = new Application();
 
