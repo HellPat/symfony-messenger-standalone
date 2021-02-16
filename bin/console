@@ -3,26 +3,65 @@
 
 require __DIR__.'/../vendor/autoload.php';
 
+use Doctrine\DBAL\DriverManager;
 use Hellpat\DispatchTextMessageCommand;
+use Hellpat\SyncTextMessage;
+use Hellpat\SyncTextMessageHandler;
 use Hellpat\TextMessage;
 use Hellpat\TextMessageHandler;
 use Symfony\Component\Console\Application;
 use Symfony\Component\ErrorHandler\Debug;
-use Symfony\Component\Messenger\Handler\HandlersLocator;
+use Symfony\Component\Messenger\Bridge\Doctrine\Transport\Connection;
+use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineSender;use Symfony\Component\Messenger\Envelope;use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
-use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
+use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;use Symfony\Component\Messenger\Transport\Sender\SendersLocatorInterface;
 
 Debug::enable();
 
+//
+$sendersLocator = new class implements SendersLocatorInterface {
+    public function getSenders(Envelope $envelope): iterable
+    {
+        if ($envelope->getMessage() instanceof SyncTextMessage) {
+            // If the Message has no sender, the sender Middleware
+            // calls the next Middleware in the Middleware-Stack of the
+            // MessageBus.
+            return null;
+        }
+
+        $dbalConnection = DriverManager::getConnection([
+            'url' => 'sqlite:///db.sqlite',
+        ]);
+
+        $connection = new Connection([
+            'table_name' => 'messages',
+            'queue_name' => 'default',
+            'auto_setup' => true,
+            // ...
+        ], $dbalConnection);
+
+        // The "SendMessageMiddleware"
+        yield new DoctrineSender($connection);
+    }
+};
+
 $bus = new MessageBus([
+    // Order of the middlewares is important.
+    // Depending on the middleware the next middleware MAY get called.
+    // If the message CAN be send, the SendMessageMiddleware does not execute
+    // subsequent Middlewares
+    new SendMessageMiddleware($sendersLocator),
     new HandleMessageMiddleware(new HandlersLocator([
         TextMessage::class => [
             // Every message can have multiple handlers but MUST have at least one handler.
             // You can allow Messages without handler by configuring the
             // HandleMessageMiddlewares second constructor parameter ($allowNoHandlers)
             new TextMessageHandler(),
-        ]
-    ]))
+        ],
+        SyncTextMessage::class => [
+            new SyncTextMessageHandler(),
+        ],
+    ])),
 ]);
 
 $application = new Application();

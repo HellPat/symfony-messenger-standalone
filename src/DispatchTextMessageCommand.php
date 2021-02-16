@@ -8,6 +8,7 @@ namespace Hellpat;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Messenger\MessageBusInterface;
@@ -27,12 +28,15 @@ final class DispatchTextMessageCommand extends Command
     {
         $this
             ->addArgument('message', InputArgument::REQUIRED, 'The message you want to send')
+            ->addOption('async', null, InputOption::VALUE_OPTIONAL, 'Should the message dispatched asynchronous?', false)
         ;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $textMessage = new TextMessage($input->getArgument('message'));
+        $textMessage = $input->getOption('async') === false
+            ? new SyncTextMessage($input->getArgument('message'))
+            : new TextMessage($input->getArgument('message'));
 
         $this->messageBus->dispatch($textMessage);
 
