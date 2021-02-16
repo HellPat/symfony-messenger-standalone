@@ -5,21 +5,43 @@ require __DIR__.'/../vendor/autoload.php';
 
 use Doctrine\DBAL\DriverManager;
 use Hellpat\DispatchTextMessageCommand;
+use Hellpat\ServiceNotFound;
 use Hellpat\SyncTextMessage;
 use Hellpat\SyncTextMessageHandler;
 use Hellpat\TextMessage;
 use Hellpat\TextMessageHandler;
+use Psr\Container\ContainerInterface;
 use Symfony\Component\Console\Application;
 use Symfony\Component\ErrorHandler\Debug;
+use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\Connection;
-use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineSender;use Symfony\Component\Messenger\Envelope;use Symfony\Component\Messenger\Handler\HandlersLocator;
+use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineReceiver;
+use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineSender;
+use Symfony\Component\Messenger\Command\ConsumeMessagesCommand;
+use Symfony\Component\Messenger\Envelope;use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
-use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;use Symfony\Component\Messenger\Transport\Sender\SendersLocatorInterface;
+use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
+use Symfony\Component\Messenger\RoutableMessageBus;
+use Symfony\Component\Messenger\Transport\Sender\SendersLocatorInterface;
 
 Debug::enable();
 
-//
-$sendersLocator = new class implements SendersLocatorInterface {
+$dbalConnection = DriverManager::getConnection([
+    'url' => 'sqlite:///db.sqlite',
+]);
+
+$doctrineMessengerConnection = $connection = new Connection([
+    'table_name' => 'messages',
+    'queue_name' => 'default',
+    'auto_setup' => true,
+    // ...
+], $dbalConnection);
+
+$doctrineSender = new DoctrineSender($doctrineMessengerConnection);
+
+$sendersLocator = new class($doctrineSender) implements SendersLocatorInterface {
+    public function __construct(private DoctrineSender $doctrineSender) {}
+
     public function getSenders(Envelope $envelope): iterable
     {
         if ($envelope->getMessage() instanceof SyncTextMessage) {
@@ -29,23 +51,12 @@ $sendersLocator = new class implements SendersLocatorInterface {
             return null;
         }
 
-        $dbalConnection = DriverManager::getConnection([
-            'url' => 'sqlite:///db.sqlite',
-        ]);
-
-        $connection = new Connection([
-            'table_name' => 'messages',
-            'queue_name' => 'default',
-            'auto_setup' => true,
-            // ...
-        ], $dbalConnection);
-
-        // The "SendMessageMiddleware"
-        yield new DoctrineSender($connection);
+        // One or multiple SenderInterface implementations for this message
+        yield $this->doctrineSender;
     }
 };
 
-$bus = new MessageBus([
+$messageBus = new MessageBus([
     // Order of the middlewares is important.
     // Depending on the middleware the next middleware MAY get called.
     // If the message CAN be send, the SendMessageMiddleware does not execute
@@ -66,6 +77,50 @@ $bus = new MessageBus([
 
 $application = new Application();
 
-$application->add(new DispatchTextMessageCommand($bus));
+$application->add(new DispatchTextMessageCommand($messageBus));
+
+$busLocator = new class implements ContainerInterface {
+    public function get($id)
+    {
+        throw ServiceNotFound::byId($id);
+    }
+
+    public function has($id)
+    {
+        return false;
+    }
+};
+
+$routableBus = new RoutableMessageBus(
+    // The Bus locator fetches a bus by ID.
+    // I have not implemented multiple buses for now. My $busLocator
+    // has not a single bus registered.
+    $busLocator,
+    // Instead I rely on a Fallback-Bus (the only bus I have at the moment)
+    $messageBus
+);
+
+$doctrineReceiver = new DoctrineReceiver($doctrineMessengerConnection);
+$receiverLocator = new class($doctrineReceiver) implements ContainerInterface {
+    public function __construct(private DoctrineReceiver $doctrineReceiver) {}
+    public function get($id)
+    {
+        return match ($id) {
+            'doctrine' => $this->doctrineReceiver,
+            default => throw ServiceNotFound::byId($id),
+        };
+    }
+
+    public function has($id)
+    {
+        return $id === 'doctrine';
+    }
+};
+
+$application->add(new ConsumeMessagesCommand(
+    $routableBus,
+    $receiverLocator,
+    new EventDispatcher()
+));
 
 $application->run();

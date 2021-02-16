@@ -31,3 +31,15 @@ bin/console dispatch:message "Hello World :-)"
 # The message will appear in the SQLite-File `db.sqlite`
 bin/console dispatch:message "Hello World :-)" --async
 ```
+
+## Receiving Messages
+
+We have a `ReceiverInterface` implementation (our `DoctrineReceiver`) with the name `doctrine`.
+We can listen for messages now.
+
+```sh
+bin/console messenger:consume doctrine
+```
+
+The process now listens for new Messages. Try producing some new "async" messages in a new terminal (`bin/console dispatch:message "Hello new World :-)" --async`).
+The Consumer should now handle your message.
