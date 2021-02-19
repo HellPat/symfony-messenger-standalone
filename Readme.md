@@ -38,7 +38,7 @@ We have a `ReceiverInterface` implementation (our `DoctrineReceiver`) with the n
 We can listen for messages now.
 
 ```sh
-bin/console messenger:consume doctrine
+bin/console messenger:consume default_receiver
 ```
 
 The process now listens for new Messages. Try producing some new "async" messages in a new terminal (`bin/console dispatch:message "Hello new World :-)" --async`).
