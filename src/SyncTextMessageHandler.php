@@ -5,10 +5,16 @@ declare(strict_types=1);
 namespace Hellpat;
 
 
+use Psr\Log\LoggerInterface;
+
 final class SyncTextMessageHandler
 {
+    public function __construct(private LoggerInterface $logger) {}
+
     public function __invoke(SyncTextMessage $textMessage)
     {
-        dump(sprintf('Handled TextMessage "%s"', $textMessage->message));
+        $this->logger->info('Handled SyncTextMessage "{message}"', [
+            'message' => $textMessage->message,
+        ]);
     }
 }

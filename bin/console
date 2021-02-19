@@ -29,6 +29,8 @@ use Symfony\Component\Messenger\Transport\Sender\SendersLocator;
 
 Debug::enable();
 
+$logger = new Logger(LogLevel::DEBUG);
+
 $sendMessagesConnection = new Connection([
     'table_name' => 'messages',
     'queue_name' => 'default',
@@ -50,7 +52,7 @@ $eventDispatcher = new EventDispatcher();
 $eventDispatcher->addSubscriber(
     new SendFailedMessageToFailureTransportListener(
         new DoctrineSender($failedMessagesConnection),
-        new Logger(LogLevel::DEBUG)
+        $logger
     )
 );
 
@@ -82,10 +84,10 @@ $messageBus = new MessageBus([
             // Every message can have multiple handlers but MUST have at least one handler.
             // You can allow Messages without handler by configuring the
             // HandleMessageMiddlewares second constructor parameter ($allowNoHandlers)
-            new AsyncTextMessageHandler(),
+            new AsyncTextMessageHandler($logger),
         ],
         SyncTextMessage::class => [
-            new SyncTextMessageHandler(),
+            new SyncTextMessageHandler($logger),
         ],
     ])),
 ]);
