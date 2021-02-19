@@ -88,7 +88,6 @@ $messageBus = new MessageBus([
             ])
         )
     ),
-    new RejectRedeliveredMessageMiddleware(), // Prevents infinite loops (see Classes DocBlock)
     new HandleMessageMiddleware(new HandlersLocator([
         AsyncTextMessage::class => [
             // Every message can have multiple handlers but MUST have at least one handler.
