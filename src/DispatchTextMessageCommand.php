@@ -36,7 +36,7 @@ final class DispatchTextMessageCommand extends Command
     {
         $textMessage = $input->getOption('async') === false
             ? new SyncTextMessage($input->getArgument('message'))
-            : new TextMessage($input->getArgument('message'));
+            : new AsyncTextMessage($input->getArgument('message'));
 
         $this->messageBus->dispatch($textMessage);
 

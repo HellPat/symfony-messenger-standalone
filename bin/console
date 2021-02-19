@@ -8,8 +8,8 @@ use Hellpat\Container;
 use Hellpat\DispatchTextMessageCommand;
 use Hellpat\SyncTextMessage;
 use Hellpat\SyncTextMessageHandler;
-use Hellpat\TextMessage;
-use Hellpat\TextMessageHandler;
+use Hellpat\AsyncTextMessage;
+use Hellpat\AsyncTextMessageHandler;
 use Symfony\Component\Console\Application;
 use Symfony\Component\ErrorHandler\Debug;
 use Symfony\Component\EventDispatcher\EventDispatcher;
@@ -17,56 +17,48 @@ use Symfony\Component\Messenger\Bridge\Doctrine\Transport\Connection;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineReceiver;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineSender;
 use Symfony\Component\Messenger\Command\ConsumeMessagesCommand;
-use Symfony\Component\Messenger\Envelope;use Symfony\Component\Messenger\Handler\HandlersLocator;
+use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
 use Symfony\Component\Messenger\RoutableMessageBus;
-use Symfony\Component\Messenger\Transport\Sender\SendersLocatorInterface;
+use Symfony\Component\Messenger\Transport\Sender\SendersLocator;
 
 Debug::enable();
 
-$dbalConnection = DriverManager::getConnection([
-    'url' => 'sqlite:///db.sqlite',
-]);
-
-$doctrineMessengerConnection = new Connection([
+$sendMessagesConnection = new Connection([
     'table_name' => 'messages',
     'queue_name' => 'default',
     'auto_setup' => true,
     // ...
-], $dbalConnection);
-
-$doctrineSender = new DoctrineSender($doctrineMessengerConnection);
-
-$sendersLocator = new class($doctrineSender) implements SendersLocatorInterface {
-    public function __construct(private DoctrineSender $doctrineSender) {}
-
-    public function getSenders(Envelope $envelope): iterable
-    {
-        if ($envelope->getMessage() instanceof SyncTextMessage) {
-            // If the Message has no sender, the sender Middleware
-            // calls the next Middleware in the Middleware-Stack of the
-            // MessageBus.
-            return null;
-        }
-
-        // One or multiple SenderInterface implementations for this message
-        yield $this->doctrineSender;
-    }
-};
+], DriverManager::getConnection([
+    'url' => 'sqlite:///db.sqlite',
+]));
 
 $messageBus = new MessageBus([
     // Order of the middlewares is important.
     // Depending on the middleware the next middleware MAY get called.
     // If the message CAN be send, the SendMessageMiddleware does not execute
     // subsequent Middlewares
-    new SendMessageMiddleware($sendersLocator),
+    new SendMessageMiddleware(
+        new SendersLocator(
+            [
+                // The sender handles out AsyncTextMessage but does not
+                // handle the SyncTextMessage.
+                // The SyncTextMessage will then be passed to the next Middleware.
+                // (See new HandleMessageMiddleware(...) some lines later
+                AsyncTextMessage::class => ['messenger.send_messages']
+            ],
+            Container::servicesById([
+                'messenger.send_messages' => new DoctrineSender($sendMessagesConnection),
+            ])
+        )
+    ),
     new HandleMessageMiddleware(new HandlersLocator([
-        TextMessage::class => [
+        AsyncTextMessage::class => [
             // Every message can have multiple handlers but MUST have at least one handler.
             // You can allow Messages without handler by configuring the
             // HandleMessageMiddlewares second constructor parameter ($allowNoHandlers)
-            new TextMessageHandler(),
+            new AsyncTextMessageHandler(),
         ],
         SyncTextMessage::class => [
             new SyncTextMessageHandler(),
@@ -90,7 +82,7 @@ $application->add(new ConsumeMessagesCommand(
         $messageBus
     ),
     Container::servicesById([
-        'default_receiver' => new DoctrineReceiver($doctrineMessengerConnection),
+        'default_receiver' => new DoctrineReceiver($sendMessagesConnection),
     ]),
     new EventDispatcher()
 ));

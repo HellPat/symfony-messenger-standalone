@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Hellpat;
 
 
-final class TextMessageHandler
+final class AsyncTextMessageHandler
 {
-    public function __invoke(TextMessage $textMessage)
+    public function __invoke(AsyncTextMessage $textMessage)
     {
         dump(sprintf('Handled TextMessage "%s"', $textMessage->message));
     }
