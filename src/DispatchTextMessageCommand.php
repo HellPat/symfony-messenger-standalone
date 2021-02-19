@@ -29,6 +29,7 @@ final class DispatchTextMessageCommand extends Command
         $this
             ->addArgument('message', InputArgument::REQUIRED, 'The message you want to send')
             ->addOption('async', null, InputOption::VALUE_OPTIONAL, 'Should the message dispatched asynchronous?', false)
+            ->addOption('should-fail', null, InputOption::VALUE_OPTIONAL, 'Should the message fail in the Handler?', false)
         ;
     }
 
@@ -37,6 +38,13 @@ final class DispatchTextMessageCommand extends Command
         $textMessage = $input->getOption('async') === false
             ? new SyncTextMessage($input->getArgument('message'))
             : new AsyncTextMessage($input->getArgument('message'));
+
+        if (
+            $textMessage instanceof AsyncTextMessage
+            && $input->getOption('should-fail') !== false
+        ) {
+            $textMessage->willThrowAnException = true;
+        }
 
         $this->messageBus->dispatch($textMessage);
 

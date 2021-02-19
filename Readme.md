@@ -43,3 +43,31 @@ bin/console messenger:consume default_receiver
 
 The process now listens for new Messages. Try producing some new "async" messages in a new terminal (`bin/console dispatch:message "Hello new World :-)" --async`).
 The Consumer should now handle your message.
+
+## Record Failures
+
+Everyone fails. Mostly me. That's fine if we handle failures and fix things.
+
+My Demo-Command produces failures by incidence:
+
+```sh
+bin/console dispatch:message "Hello World :-)" --async --should-fail
+```
+
+The Message is being stored in our `messages`-Table successfully.
+Now we need to handle it -> which fails (because we wanted it to fail).
+
+```sh
+bin/console messenger:consume default_receiver
+```
+
+Now check the Log-Output. It shows you an info (not an error) that:
+
+> [info] Rejected message Hellpat\AsyncTextMessage will be sent to the failure transport Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineSender.
+
+Now we can try to handle check the `failed_messages` table or use this neat debug command:
+
+```sh
+bin/console messenger:failed:show
+```
+

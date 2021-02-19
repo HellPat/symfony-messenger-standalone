@@ -7,5 +7,7 @@ namespace Hellpat;
 
 final class AsyncTextMessage
 {
+    public bool $willThrowAnException = false;
+
     public function __construct(public string $message) {}
 }

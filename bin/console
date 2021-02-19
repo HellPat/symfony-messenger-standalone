@@ -10,16 +10,20 @@ use Hellpat\SyncTextMessage;
 use Hellpat\SyncTextMessageHandler;
 use Hellpat\AsyncTextMessage;
 use Hellpat\AsyncTextMessageHandler;
+use Psr\Log\LogLevel;
 use Symfony\Component\Console\Application;
 use Symfony\Component\ErrorHandler\Debug;
 use Symfony\Component\EventDispatcher\EventDispatcher;
+use Symfony\Component\HttpKernel\Log\Logger;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\Connection;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineReceiver;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineSender;
 use Symfony\Component\Messenger\Command\ConsumeMessagesCommand;
+use Symfony\Component\Messenger\Command\FailedMessagesShowCommand;
+use Symfony\Component\Messenger\EventListener\SendFailedMessageToFailureTransportListener;
 use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
-use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
+use Symfony\Component\Messenger\Middleware\FailedMessageProcessingMiddleware;use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
 use Symfony\Component\Messenger\RoutableMessageBus;
 use Symfony\Component\Messenger\Transport\Sender\SendersLocator;
 
@@ -34,7 +38,27 @@ $sendMessagesConnection = new Connection([
     'url' => 'sqlite:///db.sqlite',
 ]));
 
+$failedMessagesConnection = new Connection([
+    'table_name' => 'failed_messages',
+    'auto_setup' => true,
+    // ...
+], DriverManager::getConnection([
+    'url' => 'sqlite:///db.sqlite',
+]));
+
+$eventDispatcher = new EventDispatcher();
+$eventDispatcher->addSubscriber(
+    new SendFailedMessageToFailureTransportListener(
+        new DoctrineSender($failedMessagesConnection),
+        new Logger(LogLevel::DEBUG)
+    )
+);
+
 $messageBus = new MessageBus([
+    // If the message has an SentToFailureTransportStamp (added by the SendFailedMessageToFailureTransportListener)
+    // we add an ReceivedStamp (which implements NonSendableStampInterface).
+    // So the Failed message cannot be sent again.
+    new FailedMessageProcessingMiddleware(),
     // Order of the middlewares is important.
     // Depending on the middleware the next middleware MAY get called.
     // If the message CAN be send, the SendMessageMiddleware does not execute
@@ -84,7 +108,12 @@ $application->add(new ConsumeMessagesCommand(
     Container::servicesById([
         'default_receiver' => new DoctrineReceiver($sendMessagesConnection),
     ]),
-    new EventDispatcher()
+    $eventDispatcher
 ));
+
+$application->add(new FailedMessagesShowCommand(
+    'failed_receiver',
+    new DoctrineReceiver($failedMessagesConnection
+)));
 
 $application->run();
