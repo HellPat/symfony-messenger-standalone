@@ -81,3 +81,4 @@ bin/console messenger:failed:show
 - [ ] automatic retry for failed messages (requeue)
 - [ ] remove failed messages
 - [ ] maybe provide a simple configurator object?
+- [ ] stop workers command
