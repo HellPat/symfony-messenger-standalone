@@ -1,4 +1,8 @@
-# Showcase for standalone usage of `symfony/messenger`
+# Showcase Messenger
+
+An example configuration for `symfony/messenger`.
+
+Want to see the code: [Look at `bin/console`](./bin/console).
 
 ## Purpose of this Project
 
