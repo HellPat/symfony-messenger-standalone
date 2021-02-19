@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 
-require __DIR__.'/../vendor/autoload.php';
+require __DIR__ . '/../vendor/autoload.php';
 
 use Doctrine\DBAL\DriverManager;
 use Hellpat\Container;
@@ -16,42 +16,50 @@ use Symfony\Component\ErrorHandler\Debug;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpKernel\Log\Logger;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\Connection;
-use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineReceiver;
-use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineSender;
+use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineTransport;
 use Symfony\Component\Messenger\Command\ConsumeMessagesCommand;
 use Symfony\Component\Messenger\Command\FailedMessagesShowCommand;
 use Symfony\Component\Messenger\EventListener\SendFailedMessageToFailureTransportListener;
 use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
-use Symfony\Component\Messenger\Middleware\FailedMessageProcessingMiddleware;use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
+use Symfony\Component\Messenger\Middleware\FailedMessageProcessingMiddleware;
+use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
+use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
 use Symfony\Component\Messenger\RoutableMessageBus;
 use Symfony\Component\Messenger\Transport\Sender\SendersLocator;
+use Symfony\Component\Messenger\Transport\Serialization\PhpSerializer;
 
 Debug::enable();
 
 $logger = new Logger(LogLevel::DEBUG);
 
-$sendMessagesConnection = new Connection([
-    'table_name' => 'messages',
-    'queue_name' => 'default',
-    'auto_setup' => true,
-    // ...
-], DriverManager::getConnection([
-    'url' => 'sqlite:///db.sqlite',
-]));
+$messageTransport = new DoctrineTransport(
+    new Connection([
+        'table_name' => 'messages',
+        'queue_name' => 'default',
+        'auto_setup' => true,
+        // ...
+    ], DriverManager::getConnection([
+        'url' => 'sqlite:///db.sqlite',
+    ])),
+    new PhpSerializer()
+);
 
-$failedMessagesConnection = new Connection([
-    'table_name' => 'failed_messages',
-    'auto_setup' => true,
-    // ...
-], DriverManager::getConnection([
-    'url' => 'sqlite:///db.sqlite',
-]));
+$failureTransport = new DoctrineTransport(
+    new Connection([
+        'table_name' => 'failed_messages',
+        'auto_setup' => true,
+        // ...
+    ], DriverManager::getConnection([
+        'url' => 'sqlite:///db.sqlite',
+    ])),
+    new PhpSerializer()
+);
 
 $eventDispatcher = new EventDispatcher();
 $eventDispatcher->addSubscriber(
     new SendFailedMessageToFailureTransportListener(
-        new DoctrineSender($failedMessagesConnection),
+        $failureTransport,
         $logger
     )
 );
@@ -75,7 +83,7 @@ $messageBus = new MessageBus([
                 AsyncTextMessage::class => ['messenger.send_messages']
             ],
             Container::servicesById([
-                'messenger.send_messages' => new DoctrineSender($sendMessagesConnection),
+                'messenger.send_messages' => $messageTransport,
             ])
         )
     ),
@@ -108,14 +116,14 @@ $application->add(new ConsumeMessagesCommand(
         $messageBus
     ),
     Container::servicesById([
-        'default_receiver' => new DoctrineReceiver($sendMessagesConnection),
+        'default_receiver' => $messageTransport,
     ]),
     $eventDispatcher
 ));
 
 $application->add(new FailedMessagesShowCommand(
     'failed_receiver',
-    new DoctrineReceiver($failedMessagesConnection
-)));
+    $failureTransport
+));
 
 $application->run();
