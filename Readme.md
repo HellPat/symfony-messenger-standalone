@@ -75,3 +75,9 @@ Now we can try to handle check the `failed_messages` table or use this neat debu
 bin/console messenger:failed:show
 ```
 
+## TODO
+
+- [ ] manual retry failed messages
+- [ ] automatic retry for failed messages (requeue)
+- [ ] remove failed messages
+- [ ] maybe provide a simple configurator object?
