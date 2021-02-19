@@ -38,11 +38,9 @@ bin/console dispatch:message "Hello World :-)" --async
 
 ## Receiving Messages
 
-We have a `ReceiverInterface` implementation (our `DoctrineReceiver`) with the name `doctrine`.
-We can listen for messages now.
 
 ```sh
-bin/console messenger:consume default_receiver
+bin/console messenger:consume messages
 ```
 
 The process now listens for new Messages. Try producing some new "async" messages in a new terminal (`bin/console dispatch:message "Hello new World :-)" --async`).
@@ -77,8 +75,9 @@ bin/console messenger:failed:show
 
 ## TODO
 
-- [ ] manual retry failed messages
-- [ ] automatic retry for failed messages (requeue)
+- [x] manual retry failed messages
+- [x] automatic retry for failed messages (requeue)
 - [ ] remove failed messages
 - [ ] maybe provide a simple configurator object?
 - [ ] stop workers command
+- [ ] add debug command

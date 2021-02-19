@@ -21,12 +21,14 @@ use Symfony\Component\Messenger\Command\ConsumeMessagesCommand;
 use Symfony\Component\Messenger\Command\FailedMessagesRemoveCommand;
 use Symfony\Component\Messenger\Command\FailedMessagesRetryCommand;
 use Symfony\Component\Messenger\Command\FailedMessagesShowCommand;
+use Symfony\Component\Messenger\EventListener\SendFailedMessageForRetryListener;
 use Symfony\Component\Messenger\EventListener\SendFailedMessageToFailureTransportListener;
 use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\Middleware\FailedMessageProcessingMiddleware;
 use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
 use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
+use Symfony\Component\Messenger\Retry\MultiplierRetryStrategy;
 use Symfony\Component\Messenger\RoutableMessageBus;
 use Symfony\Component\Messenger\Transport\Sender\SendersLocator;
 use Symfony\Component\Messenger\Transport\Serialization\PhpSerializer;
@@ -58,11 +60,27 @@ $failureTransport = new DoctrineTransport(
     new PhpSerializer()
 );
 
+$senders = Container::servicesById([
+    'messages' => $messageTransport,
+    'failed_messages' => $failureTransport,
+]);
+
 $eventDispatcher = new EventDispatcher();
 $eventDispatcher->addSubscriber(
     new SendFailedMessageToFailureTransportListener(
         $failureTransport,
         $logger
+    )
+);
+
+$eventDispatcher->addSubscriber(
+    new SendFailedMessageForRetryListener(
+        $senders,
+        Container::servicesById([
+           'failed_messages' => new MultiplierRetryStrategy(maxRetries: 500)
+        ]),
+        $logger,
+        $eventDispatcher
     )
 );
 
@@ -82,12 +100,11 @@ $messageBus = new MessageBus([
                 // handle the SyncTextMessage.
                 // The SyncTextMessage will then be passed to the next Middleware.
                 // (See new HandleMessageMiddleware(...) some lines later
-                AsyncTextMessage::class => ['messenger.send_messages']
+                AsyncTextMessage::class => ['messages']
             ],
-            Container::servicesById([
-                'messenger.send_messages' => $messageTransport,
-            ])
-        )
+            $senders
+        ),
+        $eventDispatcher
     ),
     new HandleMessageMiddleware(new HandlersLocator([
         AsyncTextMessage::class => [
@@ -118,24 +135,25 @@ $application->add(new ConsumeMessagesCommand(
         $messageBus
     ),
     Container::servicesById([
-        'default_receiver' => $messageTransport,
+        'messages' => $messageTransport,
+        'failed_messages' => $failureTransport,
     ]),
     $eventDispatcher
 ));
 
 $application->add(new FailedMessagesShowCommand(
-    'failed_receiver',
+    'failed_messages',
     $failureTransport
 ));
 
 $application->add(new FailedMessagesRetryCommand(
-    'failed_receiver',
+    'failed_messages',
     $failureTransport,
     $messageBus,
     $eventDispatcher,
     $logger
 ));
 
-$application->add(new FailedMessagesRemoveCommand('failed_receiver', $failureTransport));
+$application->add(new FailedMessagesRemoveCommand('failed_messages', $failureTransport));
 
 $application->run();
