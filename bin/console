@@ -18,13 +18,14 @@ use Symfony\Component\HttpKernel\Log\Logger;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\Connection;
 use Symfony\Component\Messenger\Bridge\Doctrine\Transport\DoctrineTransport;
 use Symfony\Component\Messenger\Command\ConsumeMessagesCommand;
+use Symfony\Component\Messenger\Command\FailedMessagesRetryCommand;
 use Symfony\Component\Messenger\Command\FailedMessagesShowCommand;
 use Symfony\Component\Messenger\EventListener\SendFailedMessageToFailureTransportListener;
 use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
 use Symfony\Component\Messenger\Middleware\FailedMessageProcessingMiddleware;
 use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
-use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
+use Symfony\Component\Messenger\Middleware\RejectRedeliveredMessageMiddleware;use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
 use Symfony\Component\Messenger\RoutableMessageBus;
 use Symfony\Component\Messenger\Transport\Sender\SendersLocator;
 use Symfony\Component\Messenger\Transport\Serialization\PhpSerializer;
@@ -87,6 +88,7 @@ $messageBus = new MessageBus([
             ])
         )
     ),
+    new RejectRedeliveredMessageMiddleware(), // Prevents infinite loops (see Classes DocBlock)
     new HandleMessageMiddleware(new HandlersLocator([
         AsyncTextMessage::class => [
             // Every message can have multiple handlers but MUST have at least one handler.
@@ -124,6 +126,14 @@ $application->add(new ConsumeMessagesCommand(
 $application->add(new FailedMessagesShowCommand(
     'failed_receiver',
     $failureTransport
+));
+
+$application->add(new FailedMessagesRetryCommand(
+    'failed_receiver',
+    $failureTransport,
+    $messageBus,
+    $eventDispatcher,
+    $logger
 ));
 
 $application->run();
