@@ -26,7 +26,7 @@ use Symfony\Component\Messenger\EventListener\SendFailedMessageForRetryListener;
 use Symfony\Component\Messenger\EventListener\SendFailedMessageToFailureTransportListener;
 use Symfony\Component\Messenger\Handler\HandlersLocator;
 use Symfony\Component\Messenger\MessageBus;
-use Symfony\Component\Messenger\Middleware\FailedMessageProcessingMiddleware;
+use Symfony\Component\Messenger\Middleware\AddBusNameStampMiddleware;use Symfony\Component\Messenger\Middleware\FailedMessageProcessingMiddleware;
 use Symfony\Component\Messenger\Middleware\HandleMessageMiddleware;
 use Symfony\Component\Messenger\Middleware\SendMessageMiddleware;
 use Symfony\Component\Messenger\Retry\MultiplierRetryStrategy;
@@ -38,6 +38,7 @@ Debug::enable();
 
 /** @enum */
 final class ServiceIds {
+    public const MESSAGE_BUS = 'message_bus';
     public const TRANSPORTS_DEFAULT = 'transport.messages';
     public const TRANSPORTS_FAILED = 'transport.failed_messages';
     public const RETRY_STRATEGY = 'retry_strategy.failed_messages';
@@ -93,6 +94,7 @@ $messageBus = new MessageBus([
     // we add an ReceivedStamp (which implements NonSendableStampInterface).
     // So the Failed message cannot be sent again.
     new FailedMessageProcessingMiddleware(),
+    new AddBusNameStampMiddleware(ServiceIds::MESSAGE_BUS),
     // Order of the middlewares is important.
     // Depending on the middleware the next middleware MAY get called.
     // If the message CAN be send, the SendMessageMiddleware does not execute
@@ -130,11 +132,10 @@ $application->add(new DispatchTextMessageCommand($messageBus));
 
 $application->add(new ConsumeMessagesCommand(
     new RoutableMessageBus(
-        $services,
-        // Defines a Fallback MessageBus which will be used for all messages
-        // that don't have a Symfony\Component\Messenger\Stamp\BusNameStamp
-        // At the moment there is no single message with this stamp
-        $messageBus
+        Container::fromArray([
+            ServiceIds::MESSAGE_BUS => $messageBus,
+        ]),
+        // You can also configure a fallback here
     ),
     $services,
     $eventDispatcher
