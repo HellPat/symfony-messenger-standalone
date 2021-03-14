@@ -14,7 +14,7 @@ final class Container implements ContainerInterface
 {
     private function __construct(private array $servicesById) {}
 
-    public static function servicesById(array $servicesById)
+    public static function fromArray(array $servicesById): self
     {
         return new self($servicesById);
     }

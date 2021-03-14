@@ -10,6 +10,7 @@ use Hellpat\SyncTextMessage;
 use Hellpat\SyncTextMessageHandler;
 use Hellpat\AsyncTextMessage;
 use Hellpat\AsyncTextMessageHandler;
+use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 use Symfony\Component\Console\Application;
 use Symfony\Component\ErrorHandler\Debug;
@@ -35,51 +36,54 @@ use Symfony\Component\Messenger\Transport\Serialization\PhpSerializer;
 
 Debug::enable();
 
-$logger = new Logger(LogLevel::DEBUG);
+/** @enum */
+final class ServiceIds {
+    public const TRANSPORTS_DEFAULT = 'transport.messages';
+    public const TRANSPORTS_FAILED = 'transport.failed_messages';
+    public const RETRY_STRATEGY = 'retry_strategy.failed_messages';
+}
 
-$messageTransport = new DoctrineTransport(
-    new Connection([
-        'table_name' => 'messages',
-        'queue_name' => 'default',
-        'auto_setup' => true,
-        // ...
-    ], DriverManager::getConnection([
-        'url' => 'sqlite:///db.sqlite',
-    ])),
-    new PhpSerializer()
-);
-
-$failureTransport = new DoctrineTransport(
-    new Connection([
-        'table_name' => 'failed_messages',
-        'auto_setup' => true,
-        // ...
-    ], DriverManager::getConnection([
-        'url' => 'sqlite:///db.sqlite',
-    ])),
-    new PhpSerializer()
-);
-
-$senders = Container::servicesById([
-    'messages' => $messageTransport,
-    'failed_messages' => $failureTransport,
+$services = Container::fromArray([
+    ServiceIds::TRANSPORTS_DEFAULT => new DoctrineTransport(
+        new Connection([
+            'table_name' => 'messages',
+            'queue_name' => 'default',
+            'auto_setup' => true,
+        ], DriverManager::getConnection([
+            'url' => 'sqlite:///db.sqlite',
+        ])),
+        new PhpSerializer()
+    ),
+    ServiceIds::TRANSPORTS_FAILED => new DoctrineTransport(
+        new Connection([
+            'table_name' => 'messages',
+            'queue_name' => 'failed',
+            'auto_setup' => true,
+        ], DriverManager::getConnection([
+            'url' => 'sqlite:///db.sqlite',
+        ])),
+        new PhpSerializer()
+    ),
+    ServiceIds::RETRY_STRATEGY => new MultiplierRetryStrategy(maxRetries: 3),
+    LoggerInterface::class => new Logger(LogLevel::DEBUG),
 ]);
 
 $eventDispatcher = new EventDispatcher();
 $eventDispatcher->addSubscriber(
     new SendFailedMessageToFailureTransportListener(
-        $failureTransport,
-        $logger
+        $services->get(ServiceIds::TRANSPORTS_FAILED),
+        $services->get(LoggerInterface::class)
     )
 );
 
 $eventDispatcher->addSubscriber(
     new SendFailedMessageForRetryListener(
-        $senders,
-        Container::servicesById([
-           'failed_messages' => new MultiplierRetryStrategy(maxRetries: 500)
+        $services,
+        Container::fromArray([
+            // {transport_id} => RetryStrategy
+            ServiceIds::TRANSPORTS_DEFAULT => $services->get(ServiceIds::RETRY_STRATEGY)
         ]),
-        $logger,
+        $services->get(LoggerInterface::class),
         $eventDispatcher
     )
 );
@@ -100,9 +104,9 @@ $messageBus = new MessageBus([
                 // handle the SyncTextMessage.
                 // The SyncTextMessage will then be passed to the next Middleware.
                 // (See new HandleMessageMiddleware(...) some lines later
-                AsyncTextMessage::class => ['messages']
+                AsyncTextMessage::class => [ServiceIds::TRANSPORTS_DEFAULT]
             ],
-            $senders
+            $services
         ),
         $eventDispatcher
     ),
@@ -111,10 +115,10 @@ $messageBus = new MessageBus([
             // Every message can have multiple handlers but MUST have at least one handler.
             // You can allow Messages without handler by configuring the
             // HandleMessageMiddlewares second constructor parameter ($allowNoHandlers)
-            new AsyncTextMessageHandler($logger),
+            new AsyncTextMessageHandler($services->get(LoggerInterface::class)),
         ],
         SyncTextMessage::class => [
-            new SyncTextMessageHandler($logger),
+            new SyncTextMessageHandler($services->get(LoggerInterface::class)),
         ],
     ])),
 ]);
@@ -126,34 +130,32 @@ $application->add(new DispatchTextMessageCommand($messageBus));
 
 $application->add(new ConsumeMessagesCommand(
     new RoutableMessageBus(
-        // My Bus-Locator is empty at the moment, because I did not
-        // implement any Messages with a Symfony\Component\Messenger\Stamp\BusNameStamp
-        Container::servicesById([]),
+        $services,
         // Defines a Fallback MessageBus which will be used for all messages
         // that don't have a Symfony\Component\Messenger\Stamp\BusNameStamp
         // At the moment there is no single message with this stamp
         $messageBus
     ),
-    Container::servicesById([
-        'messages' => $messageTransport,
-        'failed_messages' => $failureTransport,
-    ]),
+    $services,
     $eventDispatcher
 ));
 
 $application->add(new FailedMessagesShowCommand(
-    'failed_messages',
-    $failureTransport
+    ServiceIds::TRANSPORTS_FAILED,
+    $services->get(ServiceIds::TRANSPORTS_FAILED)
 ));
 
 $application->add(new FailedMessagesRetryCommand(
-    'failed_messages',
-    $failureTransport,
+    ServiceIds::TRANSPORTS_FAILED,
+    $services->get(ServiceIds::TRANSPORTS_FAILED),
     $messageBus,
     $eventDispatcher,
-    $logger
+    $services->get(LoggerInterface::class)
 ));
 
-$application->add(new FailedMessagesRemoveCommand('failed_messages', $failureTransport));
+$application->add(new FailedMessagesRemoveCommand(
+    ServiceIds::TRANSPORTS_FAILED,
+    $services->get(ServiceIds::TRANSPORTS_FAILED)
+));
 
 $application->run();
