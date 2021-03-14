@@ -10,6 +10,7 @@ use Hellpat\SyncTextMessage;
 use Hellpat\SyncTextMessageHandler;
 use Hellpat\AsyncTextMessage;
 use Hellpat\AsyncTextMessageHandler;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
 use Symfony\Component\Console\Application;
@@ -67,17 +68,17 @@ $services = Container::fromArray([
     ),
     ServiceIds::RETRY_STRATEGY => new MultiplierRetryStrategy(maxRetries: 3),
     LoggerInterface::class => new Logger(LogLevel::DEBUG),
+    EventDispatcherInterface::class => new EventDispatcher()
 ]);
 
-$eventDispatcher = new EventDispatcher();
-$eventDispatcher->addSubscriber(
+$services->get(EventDispatcherInterface::class)->addSubscriber(
     new SendFailedMessageToFailureTransportListener(
         $services->get(ServiceIds::TRANSPORTS_FAILED),
         $services->get(LoggerInterface::class)
     )
 );
 
-$eventDispatcher->addSubscriber(
+$services->get(EventDispatcherInterface::class)->addSubscriber(
     new SendFailedMessageForRetryListener(
         $services,
         Container::fromArray([
@@ -85,7 +86,7 @@ $eventDispatcher->addSubscriber(
             ServiceIds::TRANSPORTS_DEFAULT => $services->get(ServiceIds::RETRY_STRATEGY)
         ]),
         $services->get(LoggerInterface::class),
-        $eventDispatcher
+        $services->get(EventDispatcherInterface::class)
     )
 );
 
@@ -110,7 +111,7 @@ $messageBus = new MessageBus([
             ],
             $services
         ),
-        $eventDispatcher
+        $services->get(EventDispatcherInterface::class)
     ),
     new HandleMessageMiddleware(new HandlersLocator([
         AsyncTextMessage::class => [
@@ -138,7 +139,7 @@ $application->add(new ConsumeMessagesCommand(
         // You can also configure a fallback here
     ),
     $services,
-    $eventDispatcher
+    $services->get(EventDispatcherInterface::class)
 ));
 
 $application->add(new FailedMessagesShowCommand(
@@ -150,7 +151,7 @@ $application->add(new FailedMessagesRetryCommand(
     ServiceIds::TRANSPORTS_FAILED,
     $services->get(ServiceIds::TRANSPORTS_FAILED),
     $messageBus,
-    $eventDispatcher,
+    $services->get(EventDispatcherInterface::class),
     $services->get(LoggerInterface::class)
 ));
 
