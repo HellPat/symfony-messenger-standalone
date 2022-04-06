@@ -19,7 +19,7 @@ final class Container implements ContainerInterface
         return new self($servicesById);
     }
 
-    public function get($id)
+    public function get($id): mixed
     {
         if (! $this->has($id)) {
             throw ServiceNotFound::byId($id);
@@ -28,7 +28,7 @@ final class Container implements ContainerInterface
         return $this->servicesById[$id];
     }
 
-    public function has($id)
+    public function has($id): bool
     {
         return isset($this->servicesById[$id]);
     }
